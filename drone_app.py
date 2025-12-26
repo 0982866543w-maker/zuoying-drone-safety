@@ -7,93 +7,68 @@ urllib3.disable_warnings()
 
 st.set_page_config(page_title="左營飛行控制 Pro", layout="centered")
 
-# --- UI 樣式強化 ---
+# --- UI 樣式升級 ---
 st.markdown("""
     <style>
     .stMetric { background-color: #ffffff; border-radius: 15px; padding: 20px; border: 1px solid #f0f2f6; }
-    [data-testid="stMetricValue"] { font-size: 2.6rem !important; color: #007bff; font-weight: 800; }
-    .stButton>button { width: 100%; border-radius: 25px; background: linear-gradient(135deg, #007bff, #0056b3); color: white; height: 3.5em; font-weight: bold; border: none; }
+    [data-testid="stMetricValue"] { font-size: 2.5rem !important; color: #007bff; font-weight: 800; }
+    .stButton>button { width: 100%; border-radius: 25px; background: linear-gradient(135deg, #007bff, #0056b3); color: white; height: 3.5em; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
 st.title("🚁 左營飛行控制系統")
-st.caption("📱 雲端終極版 (V8.0 鋼鐵解析)")
+st.caption("📱 雲端終極版 (V9.0 數據全開)")
 
 API_KEY = "CWA-A5D64001-383B-43D4-BC10-F956196BA22B"
-# 抓取高雄市全區預報資料
 url = f"https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-D0047-065?Authorization={API_KEY}"
 
 if st.button('🔄 點我更新左營數據'):
     try:
-        # 加入 timeout 確保不會無限等待
-        response = requests.get(url, verify=False, timeout=10).json()
-        
-        # 1. 導航至 Location
-        recs = response.get('records', {})
-        locs_root = recs.get('locations', recs.get('Locations', [{}]))
-        all_locs = locs_root[0].get('location', locs_root[0].get('Location', []))
-        
-        # 2. 定位左營 (兼容各種名稱格式)
-        target = next((l for l in all_locs if "左營" in l.get('locationName', l.get('LocationName', ''))), None)
+        response = requests.get(url, verify=False).json()
+        recs = response.get('records', {}).get('locations', [{}])[0].get('location', [])
+        target = next((l for l in recs if "左營" in l.get('locationName', '')), None)
         
         if target:
-            elements = target.get('weatherElement', target.get('WeatherElement', []))
-            pop, ws = 0.0, 0.0
+            pop, ws = "無資料", "無資料"
+            data_time = ""
             wind_trend, time_labels = [], []
 
-            for elem in elements:
-                en = str(elem.get('elementName', elem.get('ElementName', ''))).upper()
-                times = elem.get('time', elem.get('Time', []))
+            for elem in target.get('weatherElement', []):
+                name = elem.get('elementName')
+                times = elem.get('time', [])
                 
-                # --- 智慧掃描：尋找非 0 的降雨機率 ---
-                if "POP" in en:
-                    for t in times:
-                        vals = t.get('elementValue', t.get('ElementValue', []))
-                        if vals:
-                            try:
-                                v = float(vals[0].get('value', 0))
-                                # 只要抓到第一個非0數值就更新並停止
-                                if pop == 0 and v > 0: 
-                                    pop = v
-                                    break
-                            except: continue
+                # 尋找最近一個有數據的時段
+                for idx, t in enumerate(times):
+                    val = t.get('elementValue', [{}])[0].get('value', '')
+                    if val.strip() != "":
+                        if name == "PoP12h" and pop == "無資料":
+                            pop = val
+                            data_time = t.get('startTime', '')[5:16] # 記錄時間點
+                        if name == "WS":
+                            if ws == "無資料": ws = val
+                            if idx < 6:
+                                wind_trend.append(float(val))
+                                time_labels.append(t.get('startTime', t.get('dataTime', ''))[11:16])
                 
-                # --- 智慧掃描：尋找當前風速與未來趨勢 ---
-                if "WS" in en:
-                    for idx, t in enumerate(times):
-                        vals = t.get('elementValue', t.get('ElementValue', []))
-                        if vals:
-                            try:
-                                v = float(vals[0].get('value', 0))
-                                if ws == 0 and v > 0: ws = v
-                                # 抓取前 8 個時段做趨勢圖
-                                if idx < 8:
-                                    wind_trend.append(v)
-                                    t_label = t.get('startTime', t.get('dataTime', '00:00:00'))[11:16]
-                                    time_labels.append(t_label)
-                            except: continue
-
-            # --- 🚀 飛行決策顯示 ---
-            st.markdown("### 🚦 實時飛行建議")
-            if pop > 30 or ws > 7:
-                st.error(f"## 🛑 建議停飛\n降雨機率({int(pop)}%) 或 風速({ws}m/s) 過高")
-            elif ws > 5:
-                st.warning(f"## ⚠️ 謹慎操作\n風力稍大，請保持在視距內飛行")
+            # --- 🚀 飛行決策 ---
+            pop_val = float(pop) if str(pop).replace('.','',1).isdigit() else 0
+            ws_val = float(ws) if str(ws).replace('.','',1).isdigit() else 0
+            
+            if pop_val > 30 or ws_val > 7:
+                st.error(f"## 🛑 建議停飛\n(數據時間: {data_time})")
             else:
-                st.success(f"## ✅ 適合起飛\n目前左營天氣理想，祝飛行愉快！")
+                st.success(f"## ✅ 適合起飛\n(數據時間: {data_time})")
 
             col1, col2 = st.columns(2)
             col1.metric("💨 風速預估", f"{ws} m/s")
-            col2.metric("🌧️ 降雨機率", f"{int(pop)} %")
+            col2.metric("🌧️ 降雨機率", f"{pop} %")
 
             if wind_trend:
-                st.write("📈 未來風速變化趨勢")
-                chart_df = pd.DataFrame({"風速(m/s)": wind_trend}, index=time_labels)
-                st.area_chart(chart_df, height=200)
+                st.write("📈 風速趨勢圖")
+                st.area_chart(pd.DataFrame({"風速": wind_trend}, index=time_labels))
         else:
-            st.error("❌ 無法定位左營區數據。")
-
+            st.error("❌ 找不到左營區資料")
     except Exception as e:
-        st.error(f"⚠️ 數據解析異常: {e}")
+        st.error(f"⚠️ 解析異常: {e}")
 else:
-    st.info("👋 歡迎！請點擊上方按鈕獲取最新左營區飛行氣象。")
+    st.info("👋 飛手你好！請點擊上方按鈕獲取最新預報。")
