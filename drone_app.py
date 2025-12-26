@@ -17,7 +17,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 st.title("🚁 左營飛行控制系統")
-st.caption("📱 雲端終極版 (V6.0 深度解析)")
+st.caption("📱 雲端終極版 (V7.0 全自動容錯)")
 
 API_KEY = "CWA-A5D64001-383B-43D4-BC10-F956196BA22B"
 # 抓取高雄市資料
@@ -27,12 +27,12 @@ if st.button('🔄 點我更新左營數據'):
     try:
         response = requests.get(url, verify=False).json()
         
-        # 1. 深度尋找 location 清單
+        # 1. 深度導航至 Location
         recs = response.get('records', {})
         locs_root = recs.get('locations', recs.get('Locations', [{}]))
         all_locs = locs_root[0].get('location', locs_root[0].get('Location', []))
         
-        # 2. 定位左營區
+        # 2. 定位左營區 (使用模糊比對)
         target = next((loc for loc in all_locs if "左營" in loc.get('locationName', loc.get('LocationName', ''))), None)
         
         if target:
@@ -44,25 +44,28 @@ if st.button('🔄 點我更新左營數據'):
                 en = str(elem.get('elementName', elem.get('ElementName', ''))).upper()
                 times = elem.get('time', elem.get('Time', []))
                 
-                # --- 解析降雨機率 (尋找 POP 關鍵字) ---
+                # --- 智慧解析降雨機率 ---
                 if "POP" in en:
                     for t in times:
-                        v = t.get('elementValue', t.get('ElementValue', [{}]))[0].get('value', '')
-                        if v.strip() and v != " " and v.isdigit() and int(v) > 0:
-                            pop = int(v)
-                            break # 抓到第一個有效值即停止
+                        ev_list = t.get('elementValue', t.get('ElementValue', []))
+                        if ev_list:
+                            v = str(ev_list[0].get('value', '')).strip()
+                            if v and v.isdigit():
+                                pop = int(v)
+                                break # 抓到最近一個有效值
                 
-                # --- 解析風速 (尋找 WS 關鍵字) ---
+                # --- 智慧解析風速與趨勢 ---
                 if "WS" in en:
                     for idx, t in enumerate(times):
-                        v = t.get('elementValue', t.get('ElementValue', [{}]))[0].get('value', '')
-                        if v.strip() and v != " ":
-                            if ws == 0: ws = int(v)
-                            # 收集趨勢圖數據
-                            if idx < 6:
-                                wind_trend.append(int(v))
-                                t_label = t.get('startTime', t.get('dataTime', '00:00:00'))[11:16]
-                                time_labels.append(t_label)
+                        ev_list = t.get('elementValue', t.get('ElementValue', []))
+                        if ev_list:
+                            v = str(ev_list[0].get('value', '')).strip()
+                            if v and v.isdigit():
+                                if ws == 0: ws = int(v)
+                                if idx < 8: # 抓取未來 24 小時趨勢
+                                    wind_trend.append(int(v))
+                                    t_label = t.get('startTime', t.get('dataTime', '00:00:00'))[11:16]
+                                    time_labels.append(t_label)
 
             # --- 🚀 飛行決策顯示 ---
             st.markdown("### 🚦 實時飛行建議")
@@ -78,13 +81,13 @@ if st.button('🔄 點我更新左營數據'):
             col2.metric("🌧️ 降雨機率", f"{pop} %")
 
             if wind_trend:
-                st.write("📈 未來風速動態趨勢")
+                st.write("📈 未來風速變化趨勢")
                 chart_df = pd.DataFrame({"風速(m/s)": wind_trend}, index=time_labels)
                 st.area_chart(chart_df, height=200)
         else:
-            st.error("❌ 找不到左營區資料，請確認 API 狀態。")
+            st.error("❌ 無法定位左營區數據。")
 
     except Exception as e:
         st.error(f"⚠️ 數據解析異常: {e}")
 else:
-    st.info("👋 歡迎使用！請點擊上方按鈕獲取左營區飛行決策數據。")
+    st.info("👋 歡迎！請點擊上方按鈕獲取最新左營區數據。")
