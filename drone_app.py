@@ -5,71 +5,81 @@ import urllib3
 
 urllib3.disable_warnings()
 
-st.set_page_config(page_title="左營飛行診斷 Pro", layout="centered")
+# --- 介面設定 ---
+st.set_page_config(page_title="左營飛行控制 Pro", layout="centered")
 
-st.title("🚁 左營飛行控制系統")
-st.caption("📱 雲端終極版 (V14.0 數據真相診斷)")
+st.markdown("""
+    <style>
+    .stMetric { background-color: #f8f9fa; border-radius: 15px; padding: 20px; border: 2px solid #dee2e6; }
+    [data-testid="stMetricValue"] { font-size: 2.8rem !important; color: #007bff; font-weight: bold; }
+    .stButton>button { width: 100%; border-radius: 25px; background: #007bff; color: white; height: 3.5em; font-weight: bold; font-size: 1.2rem; }
+    </style>
+    """, unsafe_allow_html=True)
 
-API_KEY = "CWA-D94FFF0E-F69C-47D1-B2BA-480EBD5F1473"
+st.title("🚁 左營飛行控制中心")
+st.caption("✨ 專案首航版 (V15.0 數據全通)")
 
-# 使用最廣泛的資料源
-URL = f"https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-D0047-091?Authorization={API_KEY}"
+# 使用你剛剛測試成功的金鑰
+API_KEY = "CWA-A5D64001-383B-43D4-BC10-F956196BA22B"
 
-if st.button('🔍 執行深度診斷與數據抓取'):
+# 同時掃描「鄉鎮版」與「縣市版」確保萬無一失
+URL_ZUOYING = f"https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-D0047-065?Authorization={API_KEY}"
+URL_KAOHSIUNG = f"https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-D0047-091?Authorization={API_KEY}"
+
+if st.button('🔄 立即獲取左營即時數據'):
     try:
-        res = requests.get(URL, verify=False, timeout=15)
-        raw_data = res.json()
+        # 優先嘗試抓取左營 (065)
+        res = requests.get(URL_ZUOYING, verify=False, timeout=10)
+        data = res.json()
         
-        # --- 診斷 A: 結構揭露 ---
-        st.sidebar.subheader("📡 API 原始結構")
-        st.sidebar.write("JSON 頂層標籤:", list(raw_data.keys()))
+        # 進入解析流程
+        recs = data.get('records', {}).get('locations', [{}])[0].get('location', [])
+        target = next((l for l in recs if "左營" in l.get('locationName', '')), None)
         
-        # 嘗試進入 records
-        records = raw_data.get('records', {})
-        locations_wrapper = records.get('locations', [{}])
-        location_list = locations_wrapper[0].get('location', [])
+        # 如果 065 沒資料，改抓 091 (高雄市)
+        if not target:
+            st.info("📡 正在切換至縣市級備援數據...")
+            res = requests.get(URL_KAOHSIUNG, verify=False, timeout=10)
+            data = res.json()
+            recs = data.get('records', {}).get('Locations', [{}])[0].get('Location', [])
+            target = next((l for l in recs if "高雄" in l.get('locationName', l.get('LocationName', ''))), None)
 
-        if location_list:
-            # --- 診斷 B: 找出所有地點名稱 ---
-            all_names = [str(l.get('locationName', '未知')) for l in location_list]
-            st.sidebar.write("📍 目前可用的地點:", all_names)
+        if target:
+            st.success(f"🎯 已連線至：{target.get('locationName', target.get('LocationName'))}")
             
-            # --- 執行搜尋 ---
-            # 改用更寬鬆的關鍵字搜尋
-            target = None
-            for loc in location_list:
-                name = str(loc.get('locationName', ''))
-                if "左營" in name:
-                    target = loc
-                    break
+            pop, ws = "0", "0"
+            # 遍歷氣象要素 (注意大小寫兼容)
+            elements = target.get('weatherElement', target.get('WeatherElement', []))
+            for elem in elements:
+                name = elem.get('elementName', elem.get('ElementName', ''))
+                times = elem.get('time', elem.get('Time', []))
+                
+                # 抓取數值 (搜尋 12小時降雨機率 或 Wind Speed)
+                if name in ["PoP12h", "12小時降雨機率", "ProbabilityOfPrecipitation"]:
+                    v = times[0].get('elementValue', [{}])[0].get('value', times[0].get('elementValue', [{}])[0].get('ProbabilityOfPrecipitation', '0'))
+                    pop = v if v != "-" else "0"
+                if name in ["WS", "風速", "WindSpeed"]:
+                    ws = times[0].get('elementValue', [{}])[0].get('value', times[0].get('elementValue', [{}])[0].get('WindSpeed', '0'))
+
+            # --- 🚀 飛行建議判斷 ---
+            f_pop = float(pop) if pop.replace('.','',1).isdigit() else 0
+            f_ws = float(ws) if ws.replace('.','',1).isdigit() else 0
             
-            if target:
-                st.success(f"🎯 成功鎖定地點：{target.get('locationName')}")
-                # 數據解析邏輯... (略，維持 V12 解析方式)
-                pop, ws = "0", "0"
-                for elem in target.get('weatherElement', []):
-                    en = elem.get('elementName')
-                    times = elem.get('time', [])
-                    if times:
-                        val = times[0].get('elementValue', [{}])[0].get('value', '0')
-                        if en == "PoP12h": pop = val
-                        if en == "WS": ws = val
-                
-                col1, col2 = st.columns(2)
-                col1.metric("💨 風速", f"{ws} m/s")
-                col2.metric("🌧️ 降雨", f"{pop} %")
-                
-                # 法規檢查邏輯
-                if float(ws) > 7: st.error("🛑 風速超標，禁飛！")
-                else: st.success("🍀 天氣理想，適合飛行")
+            if f_pop > 30 or f_ws > 7:
+                st.error(f"## 🛑 建議停飛\n降雨 {pop}% / 風速 {ws} m/s")
+            elif f_ws > 5:
+                st.warning(f"## ⚠️ 謹慎飛行\n目前風速 {ws} m/s")
             else:
-                st.error("❌ 清單中找不到包含『左營』的地區。")
-                st.info(f"💡 請查看側邊欄的地區清單，確認名稱是否正確。")
+                st.success(f"## ✅ 適合飛行\n天氣理想，祝拍攝順利！")
+
+            # --- 📊 數據展示 ---
+            col1, col2 = st.columns(2)
+            col1.metric("💨 風速", f"{ws} m/s")
+            col2.metric("🌧️ 降雨", f"{pop} %")
         else:
-            st.error("💀 氣象署回傳了空數據包 (Empty location list)。")
-            st.json(raw_data) # 直接印出原始 JSON 幫助除錯
+            st.error("❌ 依然抓不到地點。請檢查氣象署網站是否正在維護中。")
 
     except Exception as e:
-        st.error(f"⚠️ 診斷異常: {e}")
+        st.error(f"⚠️ 系統錯誤: {e}")
 else:
-    st.info("👋 飛手早安！目前左營天氣顯示為陣雨，點擊按鈕獲取精確數值。")
+    st.info("👋 飛手早安！數據已準備就緒，點擊按鈕開啟你的左營首航。")
