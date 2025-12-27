@@ -21,7 +21,7 @@ st.markdown("""
 st.title("🚁 左營飛行控制系統")
 st.caption("🛡️ V24.0 全能韌性引擎版")
 
-API_KEY = "CWA-A5D64001-383B-43D4-BC10-F956196BA22B"
+API_KEY = "CWA-D94FFF0E-F69C-47D1-B2BA-480EBD5F1473"
 
 def fetch_safe(url):
     """工程師專用：強化請求穩定性"""
