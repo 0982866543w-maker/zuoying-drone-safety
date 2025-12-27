@@ -10,7 +10,7 @@ st.set_page_config(page_title="左營飛行診斷 Pro", layout="centered")
 st.title("🚁 左營飛行控制系統")
 st.caption("📱 雲端終極版 (V14.0 數據真相診斷)")
 
-API_KEY = "CWA-A5D64001-383B-43D4-BC10-F956196BA22B"
+API_KEY = "CWA-D94FFF0E-F69C-47D1-B2BA-480EBD5F1473"
 
 # 使用最廣泛的資料源
 URL = f"https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-D0047-091?Authorization={API_KEY}"
