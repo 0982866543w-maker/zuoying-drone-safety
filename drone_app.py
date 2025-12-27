@@ -5,94 +5,83 @@ import urllib3
 
 urllib3.disable_warnings()
 
-# --- 1. 專業介面設定 ---
 st.set_page_config(page_title="左營飛行控制 Pro", layout="centered")
 
+# --- 專業介面樣式 ---
 st.markdown("""
     <style>
-    .info-card { background-color: #f1f3f5; border-radius: 10px; padding: 15px; margin-bottom: 10px; border-left: 5px solid #007bff; }
-    .stMetric { background-color: #ffffff; border-radius: 15px; padding: 15px; border: 1px solid #e9ecef; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-    [data-testid="stMetricValue"] { font-size: 2.2rem !important; color: #007bff; font-weight: bold; }
-    .stButton>button { width: 100%; border-radius: 25px; background: linear-gradient(135deg, #007bff, #0056b3); color: white; height: 3.5em; font-weight: bold; }
+    .stMetric { background-color: #ffffff; border-radius: 15px; padding: 15px; border: 1px solid #eee; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+    [data-testid="stMetricValue"] { font-size: 2.2rem !important; color: #d63384; font-weight: bold; }
+    .stButton>button { width: 100%; border-radius: 25px; background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%); color: white; height: 3.5em; border: none; font-weight: bold; }
+    .info-box { background-color: #f0f7ff; border-radius: 10px; padding: 15px; border-left: 5px solid #2575fc; }
     </style>
     """, unsafe_allow_html=True)
 
 st.title("🚁 左營飛行控制中心")
-st.caption("📊 V17.0 綜合資訊加強版")
+st.caption("🎯 V18.0 鄉鎮精緻校準版")
 
 API_KEY = "CWA-A5D64001-383B-43D4-BC10-F956196BA22B"
-URL = f"https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-D0047-091?Authorization={API_KEY}"
+# 切換回鄉鎮級精緻預報 API
+URL = f"https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-D0047-065?Authorization={API_KEY}"
 
-if st.button('🔄 獲取左營即時綜合數據'):
+if st.button('🔄 獲取左營精確預報資料'):
     try:
-        res = requests.get(URL, verify=False, timeout=10)
+        res = requests.get(URL, verify=False, timeout=15)
         data = res.json()
         
-        records = data.get('records', {})
-        locations = records.get('Locations', records.get('locations', [{}]))[0].get('Location', [])
-        target = next((l for l in locations if "高雄" in l.get('LocationName', '')), None)
+        # 深入解析精緻預報結構
+        locations = data.get('records', {}).get('locations', [{}])[0].get('location', [])
+        # 精確搜尋左營區
+        target = next((l for l in locations if "左營" in l.get('locationName', '')), None)
 
         if target:
-            # 提取所有氣象因子
-            elements = target.get('WeatherElement', [])
-            weather_data = {
-                "Time": "", "Temp": "N/A", "ApparentTemp": "N/A", 
-                "RainProb": "0", "WindSpeed": "0", "Desc": ""
-            }
+            elements = target.get('weatherElement', [])
+            weather = {"Temp": "N/A", "Apparent": "N/A", "WS": "0", "PoP": "0", "Desc": "", "Time": ""}
 
             for elem in elements:
-                name = elem.get('ElementName', '')
-                times = elem.get('Time', [])
+                en = elem.get('elementName', '')
+                times = elem.get('time', [])
                 if not times: continue
                 
-                # 取得第一筆數據內容
-                val_dict = times[0].get('ElementValue', [{}])[0]
+                # 鄉鎮預報的標籤名稱與全區 API 不同，需精準比對
+                val = times[0].get('elementValue', [{}])[0].get('value', '0')
                 
-                if name == "平均溫度": weather_data["Temp"] = val_dict.get('Temperature', '0')
-                if name == "最高體感溫度": weather_data["ApparentTemp"] = val_dict.get('MaxApparentTemperature', '0')
-                if name == "12小時降雨機率": weather_data["RainProb"] = val_dict.get('ProbabilityOfPrecipitation', '0')
-                if name == "風速": weather_data["WindSpeed"] = val_dict.get('WindSpeed', '0')
-                if name == "天氣預報綜合描述": weather_data["Desc"] = val_dict.get('WeatherDescription', '')
+                if en == "T": weather["Temp"] = val # 溫度
+                elif en == "AT": weather["Apparent"] = val # 體感
+                elif en == "WS": weather["WS"] = val # 風速
+                elif en == "PoP12h": weather["PoP"] = val # 降雨機率
+                elif en == "WeatherDescription": weather["Desc"] = val # 描述
                 
-                # 記錄資料起始時間
-                if not weather_data["Time"]:
-                    raw_time = times[0].get('StartTime', '')
-                    weather_data["Time"] = raw_time.replace('T', ' ').split('+')[0]
+                if not weather["Time"]:
+                    weather["Time"] = times[0].get('startTime', '')[5:16].replace('T', ' ')
 
-            # --- 🚀 飛行決策與基本資料 ---
-            ws = float(weather_data["WindSpeed"])
-            pop = int(weather_data["RainProb"]) if weather_data["RainProb"].isdigit() else 0
+            # --- 🚀 飛行決策 ---
+            f_ws = float(weather["WS"])
+            f_pop = int(weather["PoP"]) if weather["PoP"].isdigit() else 0
 
-            # 顯示資料時間
-            st.info(f"🕒 **預報時段：** {weather_data['Time']}")
+            st.success(f"📍 觀測地點：左營區 (精緻預報)")
+            st.info(f"🕒 資料時段：{weather['Time']}")
 
-            if pop > 30 or ws > 7:
-                st.error(f"## 🛑 建議停飛\n降雨 {pop}% / 風速 {ws} m/s")
+            if f_ws > 7 or f_pop > 30:
+                st.error(f"## 🛑 建議停飛\n目前預報風速 ({f_ws} m/s) 或降雨 ({f_pop}%) 較高")
             else:
-                st.success(f"## ✅ 適合飛行\n目前的預報條件非常理想！")
+                st.success(f"## ✅ 適合起飛\n左營區預報氣候良好！")
 
-            # --- 📊 數據格位展示 ---
+            # --- 📊 數據格位 ---
             col1, col2 = st.columns(2)
             with col1:
-                st.metric("🌡️ 目前溫度", f"{weather_data['Temp']} °C")
-                st.metric("💨 預估風速", f"{ws} m/s")
+                st.metric("🌡️ 預報溫度", f"{weather['Temp']} °C")
+                st.metric("💨 預報風速", f"{weather['WS']} m/s")
             with col2:
-                st.metric("🧥 體感溫度", f"{weather_data['ApparentTemp']} °C")
-                st.metric("🌧️ 降雨機率", f"{pop} %")
+                st.metric("🧥 體感溫度", f"{weather['Apparent']} °C")
+                st.metric("🌧️ 降雨機率", f"{weather['PoP']} %")
 
-            # --- 📝 天氣描述 ---
-            st.markdown(f"""
-            <div class="info-card">
-                <strong>📝 今日天氣摘要：</strong><br>{weather_data['Desc']}
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"""<div class="info-box"><strong>📝 預報摘要：</strong><br>{weather['Desc']}</div>""", unsafe_allow_html=True)
             
-            st.caption("註：目前 API 提供 12 小時逐時預報，暫無即時日出日落與時雨量精確值。")
-
         else:
-            st.error("❌ 找不到資料。")
+            st.error("❌ 無法在高雄市資料中定位『左營區』，請稍後再試。")
 
     except Exception as e:
         st.error(f"⚠️ 解析異常: {e}")
 else:
-    st.info("👋 飛手你好！點擊按鈕獲取最新飛行決策資訊。")
+    st.info("👋 飛手你好！點擊按鈕獲取與氣象局網頁同步的左營精確預報。")
